@@ -285,8 +285,8 @@ const FIREBASE_VER = '10.12.2';
 /* ================= 資料定義 ================= */
 const BOOKS = [{k:'代付_營業用',n:'營業用'},{k:'代付_日常用',n:'日常用'}];
 const KIND = {
-  advance:{n:'代付',type:'應收款項',main:'應收款項',sub:'代付',sign:-1,g:'代'},
-  collect:{n:'收回',type:'應收款項',main:'應收款項',sub:'收回',sign:1,g:'收'},
+  advance:{n:'代付',type:'代付',sign:-1,g:'代'},
+  collect:{n:'收款',type:'收款',sign:1,g:'收'},
   expense:{n:'支出',type:'支出',sign:-1,g:'支'},
   income:{n:'收入',type:'收入',sign:1,g:'入'}
 };
@@ -302,8 +302,11 @@ const today = () => { const d = new Date(); return d.getFullYear()+'-'+String(d.
 const bookName = k => (BOOKS.find(b => b.k === k) || {n:k}).n;
 
 function kindOf(r){
-  if (r.type === '應收款項') return r.sub === '收回' || r.amount > 0 ? 'collect' : 'advance';
-  if (r.type === '收入') return 'income';
+  const t = r.type, sub = r.sub;
+  if (t === '收入') return 'income';
+  if (t === '代付') return 'advance';
+  if (t === '收款' || t === '收回') return 'collect';
+  if (t === '應收款項') return (sub === '收回' || sub === '收款' || r.amount > 0) ? 'collect' : 'advance';
   return 'expense';
 }
 
@@ -346,7 +349,7 @@ function listen(){
   FB.rowsCol = collection(FB.db, base + '/rows');
   FB.settingsDoc = doc(FB.db, base + '/meta/settings');
   FB.unsub.push(onSnapshot(FB.rowsCol, { includeMetadataChanges: true }, snap => {
-    S.rows = snap.docs.map(d => d.data()).filter(r => !r.deleted && r.date);
+    S.rows = snap.docs.map(d => d.data()).filter(r => !r.deleted && r.date); invalidateAR();
     UI.pending = snap.docs.filter(d => d.metadata.hasPendingWrites).length;
     UI.fromCache = snap.metadata.fromCache; UI.err = ''; S.demo = false;
     // 第一次載入時，總覽自動跳到最新一筆資料所在的月份
@@ -368,6 +371,7 @@ function renderLive(){ clearTimeout(liveT); liveT = setTimeout(render, 60); }
 const clean = o => { const { serverTs, ...rest } = o; return JSON.parse(JSON.stringify(rest)); };
 
 function upsert(row){
+  invalidateAR();
   row.updatedAt = Date.now(); row.deleted = false; row.src = 'app';
   const i = S.rows.findIndex(r => r.id === row.id);
   i >= 0 ? S.rows[i] = row : S.rows.push(row);
@@ -377,6 +381,7 @@ function upsert(row){
   } else save();
 }
 function remove(id){
+  invalidateAR();
   S.rows = S.rows.filter(r => r.id !== id);
   if (FB && FB.user) {
     const { setDoc, doc, serverTimestamp } = FB.fs;
@@ -401,12 +406,36 @@ async function login(){
 }
 
 /* ================= 應收計算 ================= */
-function collectedFor(a){ return S.rows.filter(r => r.linkId === a.id && kindOf(r) === 'collect').reduce((s, r) => s + r.amount, 0); }
-function outstanding(a){
-  const paid = collectedFor(a), owe = -a.amount;
-  if (a.status === '已收' && paid === 0) return 0;    // 在試算表直接標「已收」也算數
-  return Math.max(0, owe - paid);
+// 應收沖銷：有「關聯ID」的收款直接沖該筆；沒有的，依同一對象（無對象則同帳本）先進先出沖最早的代付
+let AR = null;
+const invalidateAR = () => { AR = null; };
+function arMap(){
+  if (AR) return AR;
+  AR = new Map();
+  const byDate = (a, b) => a.date.localeCompare(b.date);
+  const adv = S.rows.filter(r => kindOf(r) === 'advance').sort(byDate);
+  adv.forEach(a => AR.set(a.id, { owe: -a.amount, paid: 0 }));
+  const loose = [];
+  S.rows.filter(r => kindOf(r) === 'collect').sort(byDate).forEach(c => {
+    const o = c.linkId && AR.get(c.linkId);
+    o ? o.paid += c.amount : loose.push(c);
+  });
+  adv.forEach(a => { const o = AR.get(a.id); if (a.status === '已收' && o.paid === 0) o.paid = o.owe; });
+  const key = r => r.party ? 'p:' + r.party : 'b:' + r.book;
+  loose.forEach(c => {
+    let left = c.amount;
+    for (const a of adv) {
+      if (left <= 0) break;
+      if (key(a) !== key(c)) continue;
+      const o = AR.get(a.id), need = o.owe - o.paid;
+      if (need <= 0) continue;
+      const x = Math.min(need, left); o.paid += x; left -= x;
+    }
+  });
+  return AR;
 }
+function collectedFor(a){ const o = arMap().get(a.id); return o ? o.paid : 0; }
+function outstanding(a){ const o = arMap().get(a.id); return o ? Math.max(0, o.owe - o.paid) : Math.max(0, -a.amount); }
 function statusOf(a){ const o = outstanding(a); return o < 0.5 ? '已收' : o < -a.amount - 0.5 ? '部分收回' : '未收'; }
 function refreshStatus(a){ const s = statusOf(a); if (a.status !== s) { a.status = s; upsert(a); } }
 
@@ -441,7 +470,7 @@ function renderOverview(){
   const t = sumBy(period);
   const pnl = t.income + t.expense;
   const end = m ? `${y}-${m}-31` : `${y}-12-31`;
-  const arBal = scoped.filter(r => r.date <= end && r.type === '應收款項').reduce((s, r) => s - r.amount, 0);
+  const arBal = Math.max(0, scoped.filter(r => r.date <= end && ['advance','collect'].includes(kindOf(r))).reduce((s, r) => s - r.amount, 0));
   const label = m ? `${y} 年 ${+m} 月` : `${y} 年`;
   $('#kpis').innerHTML = `
     <div class="kpi hero"><div><div class="l">${label}・損益</div><div class="v ${pnl >= 0 ? 'pos' : 'neg'}">${money(pnl, true)}</div><div class="tiny muted">收入 ${money(t.income)} − 支出 ${money(t.expense)}</div></div><svg><use href="#cat"/></svg></div>
@@ -493,10 +522,10 @@ function renderOverview(){
 /* ================= 明細 ================= */
 function itemHTML(r){
   const k = kindOf(r);
-  const meta = [r.party, r.project, r.account, bookName(r.book)].filter(Boolean).map(esc).join('・');
+  const meta = [r.party, r.project, r.merchant, r.account, bookName(r.book)].filter(Boolean).map(esc).join('・');
   let badge = '';
   if (k === 'advance') { const s = statusOf(r); badge = `<div><span class="badge ${s === '已收' ? 'b-done' : s === '部分收回' ? 'b-part' : 'b-open'}">${s}</span></div>`; }
-  const cur = r.currency && r.currency !== 'TWD' ? ` <span class="badge">${esc(r.currency)}${r.orig ? ' ' + Number(r.orig).toLocaleString() : ''}</span>` : '';
+  const cur = r.currency && r.currency !== 'TWD' ? ` <span class="badge">${esc(r.currency)}${r.orig ? ' ' + Math.abs(Number(r.orig)).toLocaleString() : ''}</span>` : '';
   return `<div class="item" data-id="${r.id}"><div class="ico k-${k}">${KIND[k].g}</div>
     <div class="mid"><div class="d">${esc(r.desc || r.main || KIND[k].n)}${cur}</div><div class="m">${meta}</div></div>
     <div class="amt"><div class="${r.amount > 0 ? 'pos' : 'neg'}">${money(r.amount, true)}</div>${badge}</div></div>`;
@@ -573,11 +602,12 @@ function datalist(id, list){ return `<datalist id="${id}">${(list || []).map(v =
 
 function openEditor(row){
   const isNew = !row;
-  const r = row ? { ...row } : { id: uid(), book: UI.book !== 'all' ? UI.book : BOOKS[0].k, type:'應收款項', main:'應收款項', sub:'代付', amount:0, date: today(), currency:'TWD', account:(S.settings['帳戶'] || [])[0] || '', project: UI.project !== 'all' && UI.project !== '未指定' ? UI.project : '', party:'', desc:'' };
+  const r = row ? { ...row } : { id: uid(), book: UI.book !== 'all' ? UI.book : BOOKS[0].k, type:'代付', main:'', sub:'', amount:0, date: today(), currency:'TWD', account:(S.settings['帳戶'] || [])[0] || '', project: UI.project !== 'all' && UI.project !== '未指定' ? UI.project : '', party:'', desc:'' };
   let k = kindOf(r);
   const st = S.settings;
   const draw = () => {
-    const cats = k === 'expense' ? st['支出類別'] : k === 'income' ? st['收入類別'] : null;
+    const cats = (k === 'income' ? st['收入類別'] : st['支出類別']) || [];
+    const rate = r.orig && r.amount ? Math.abs(r.amount / r.orig) : 0;
     openSheet(`
       <h2><svg class="i"><use href="#cat"/></svg>${isNew ? '記一筆' : '編輯紀錄'}</h2>
       <div class="seg" id="eKind">${Object.entries(KIND).map(([kk, v]) => `<button type="button" data-k="${kk}" class="${k === kk ? 'on' : ''}">${v.n}</button>`).join('')}</div>
@@ -587,21 +617,30 @@ function openEditor(row){
           <div class="field"><label>日期</label><input type="date" id="eDate" value="${r.date}" required></div>
           <div class="field"><label>帳本</label><select id="eBook">${opts(BOOKS.map(b => ({v:b.k, n:b.n})), r.book)}</select></div>
           <div class="field"><label>帳戶</label><input id="eAcc" list="dlAcc" value="${esc(r.account)}"></div>
-          <div class="field"><label>幣種</label><select id="eCur">${opts(st['幣種'] && st['幣種'].length ? st['幣種'] : ['TWD'], r.currency)}</select></div>
+          <div class="field"><label>幣種</label><select id="eCur">${opts([...new Set(['TWD', ...(st['幣種'] || []), r.currency || 'TWD'])], r.currency || 'TWD')}</select></div>
         </div>
-        <div class="field" id="origWrap" style="display:${r.currency && r.currency !== 'TWD' ? '' : 'none'}"><label>原幣金額（選填）</label><input id="eOrig" inputmode="decimal" value="${r.orig ?? ''}"></div>
-        ${cats ? `<div class="grid2"><div class="field"><label>主類別</label><input id="eMain" list="dlCat" value="${esc(r.type === KIND[k].type ? r.main : '')}"></div><div class="field"><label>子類別</label><input id="eSub" value="${esc(r.type === KIND[k].type ? r.sub : '')}"></div></div>${datalist('dlCat', cats)}` : ''}
+        <div class="field" id="origWrap" style="display:${r.currency && r.currency !== 'TWD' ? '' : 'none'}"><label>原幣金額（<span id="curLbl">${esc(r.currency)}</span>）</label><input id="eOrig" inputmode="decimal" value="${r.orig != null && r.orig !== '' ? Math.abs(r.orig) : ''}" placeholder="例如 7260"><div class="tiny muted" id="rateHint" style="margin-top:4px">${rate ? '匯率約 ' + rate.toFixed(4) : '填入後自動計算匯率'}</div></div>
+        <div class="grid2"><div class="field"><label>主類別</label><input id="eMain" list="dlCat" value="${esc(r.main)}" placeholder="例：醫療"></div><div class="field"><label>子類別</label><input id="eSub" value="${esc(r.sub)}" placeholder="例：藥品"></div></div>${datalist('dlCat', cats)}
         <div class="grid2">
           <div class="field"><label>對象</label><input id="eParty" list="dlParty" value="${esc(r.party)}" placeholder="幫誰付／誰付的"></div>
           <div class="field"><label>專案</label><input id="eProj" list="dlProj" value="${esc(r.project)}"></div>
         </div>
         <div class="field"><label>描述</label><input id="eDesc" value="${esc(r.desc)}" placeholder="例如：代匯運費"></div>
+        <details class="field" ${r.merchant || r.name || r.fee || r.discount ? 'open' : ''}><summary class="tiny muted" style="cursor:pointer">更多欄位（商家、名稱、手續費、折扣）</summary>
+          <div class="grid2" style="margin-top:6px">
+            <div class="field"><label>商家</label><input id="eMerchant" value="${esc(r.merchant)}"></div>
+            <div class="field"><label>名稱</label><input id="eName" value="${esc(r.name)}"></div>
+            <div class="field"><label>手續費</label><input id="eFee" inputmode="decimal" value="${r.fee ?? ''}"></div>
+            <div class="field"><label>折扣</label><input id="eDisc" inputmode="decimal" value="${r.discount ?? ''}"></div>
+          </div></details>
         ${datalist('dlAcc', st['帳戶'])}${datalist('dlParty', st['對象'])}${datalist('dlProj', st['專案'])}
         <button class="btn block" style="margin-top:6px">儲存</button>
         ${isNew ? '' : `<div class="row" style="margin-top:10px">${k === 'advance' && outstanding(r) > 0 ? `<button type="button" class="btn ghost" style="flex:1" id="eCollect">登記收回</button>` : ''}<button type="button" class="btn danger" style="flex:1" id="eDel">刪除</button></div>`}
       </form>`);
     $$('#eKind button').forEach(b => b.onclick = () => { capture(); k = b.dataset.k; draw(); });
-    $('#eCur').onchange = e => $('#origWrap').style.display = e.target.value !== 'TWD' ? '' : 'none';
+    $('#eCur').onchange = e => { $('#origWrap').style.display = e.target.value !== 'TWD' ? '' : 'none'; $('#curLbl').textContent = e.target.value; };
+    const hint = () => { const a = parseFloat($('#eAmt').value), o = parseFloat($('#eOrig').value); $('#rateHint').textContent = a && o ? '匯率約 ' + (a / o).toFixed(4) : '填入後自動計算匯率'; };
+    $('#eAmt').oninput = hint; $('#eOrig').oninput = hint;
     $('#eForm').onsubmit = e => { e.preventDefault(); commit(); };
     if ($('#eDel')) $('#eDel').onclick = () => confirmBox('確定刪除這筆紀錄？試算表上會標記為「已刪除」。', () => {
       S.rows.filter(x => x.linkId === r.id).forEach(x => { x.linkId = ''; upsert(x); });
@@ -614,21 +653,23 @@ function openEditor(row){
     const v = id => $(id) ? $(id).value.trim() : null;
     r.amount = Math.abs(parseFloat(v('#eAmt')) || 0) * KIND[k].sign; r.date = v('#eDate'); r.book = v('#eBook'); r.account = v('#eAcc');
     r.currency = v('#eCur'); r.party = v('#eParty'); r.project = v('#eProj'); r.desc = v('#eDesc');
-    const o = v('#eOrig'); r.orig = o ? parseFloat(o) : null;
-    if ($('#eMain')) { r.main = v('#eMain'); r.sub = v('#eSub'); }
+    const n = x => { const t = v(x); return t === '' || t === null ? null : parseFloat(t); };
+    const o = n('#eOrig'); r.orig = o === null || isNaN(o) ? null : Math.abs(o) * KIND[k].sign;
+    r.main = v('#eMain'); r.sub = v('#eSub');
+    r.merchant = v('#eMerchant'); r.name = v('#eName'); r.fee = n('#eFee'); r.discount = n('#eDisc');
   };
   const commit = () => {
     capture();
     if (!r.amount) return toast('請輸入金額');
     const K = KIND[k];
-    r.type = K.type;
-    if (K.main) { r.main = K.main; r.sub = K.sub; }
+    // 舊格式（應收款項／應收款項／代付）的資料，類型沒變就保留原本寫法
+    if (isNew || kindOf(row) !== k) r.type = K.type;
     if (r.currency === 'TWD') r.orig = null;
     if (k === 'advance') r.status = statusOf(r); else r.status = '';
     upsert(r);
     // 新出現的帳戶／對象／專案自動加入設定
     let changed = false;
-    [['帳戶', r.account], ['對象', r.party], ['專案', r.project], [k === 'income' ? '收入類別' : '支出類別', k === 'expense' || k === 'income' ? r.main : '']].forEach(([key, val]) => {
+    [['帳戶', r.account], ['對象', r.party], ['專案', r.project], [k === 'income' ? '收入類別' : '支出類別', r.main !== '應收款項' ? r.main : '']].forEach(([key, val]) => {
       if (val && !(S.settings[key] || []).includes(val)) { (S.settings[key] = S.settings[key] || []).push(val); changed = true; }
     });
     if (changed) saveSettings();
@@ -656,7 +697,7 @@ function openCollect(advs){
     advs.forEach(a => {
       const amt = single ? Math.min(parseFloat($('#cAmt').value) || 0, outstanding(a)) : outstanding(a);
       if (amt <= 0) return;
-      upsert({ id: uid(), book: a.book, account: acc, currency:'TWD', type:'應收款項', main:'應收款項', sub:'收回', amount: amt, date,
+      upsert({ id: uid(), book: a.book, account: acc, currency:'TWD', type:'收款', main: a.main === '應收款項' ? '' : (a.main || ''), sub: a.main === '應收款項' ? '' : (a.sub || ''), amount: amt, date,
         desc: '收回：' + (a.desc || ''), project: a.project || '', party: a.party || '', status:'', orig:null, linkId: a.id });
       refreshStatus(a);
     });
@@ -687,6 +728,7 @@ function renderSync(){
   else txt.textContent = UI.fromCache ? '已存本機' : '已同步';
 }
 function render(){
+  invalidateAR();
   const gate = cloudOn() && UI.ready && !(FB && FB.user);
   $$('section').forEach(s => s.classList.toggle('on', gate ? s.id === 'login' : s.id === UI.tab));
   $('nav').style.display = gate ? 'none' : '';
@@ -772,7 +814,7 @@ function loadDemo(){
   add({ account:'第一銀行', type:'支出', main:'運費', sub:'', amount:-320, date:'2026-02-12', desc:'寄件運費', book:'代付_營業用' });
   S.rows.forEach(r => { if (kindOf(r) === 'advance') r.status = statusOf(r); });
   S.settings = { '帳戶':['第一銀行','永豐DAWHO','台新GOGO卡','錢包','匯豐旅人','第ㄧiLEO','Suica卡'], '專案':['2025 年底代匯','稅費代繳','日本行 2026/3'],
-    '對象':['阿凱','小芸','媽媽','公司'], '支出類別':['餐飲','交通','購物','稅費','運費','其他'], '收入類別':['代購服務費','其他收入'], '幣種':['TWD','JPY'] };
+    '對象':['阿凱','小芸','媽媽','公司'], '支出類別':['餐飲','交通','購物','稅費','運費','其他'], '收入類別':['代購服務費','其他收入'], '幣種':['TWD','JPY','KRW'] };
   S.demo = true; UI.year = 2026; UI.month = 3; UI.day = null; save();
 }
 
