@@ -19,8 +19,13 @@
   --r:20px; --shadow:0 2px 0 #EADFCB;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+/* 觸控優化：取消雙擊縮放延遲、避免長按選字干擾點擊 */
+button,a,.chip,.item,.bar,.year,.grp-h,.sync,.tag button,summary{touch-action:manipulation;-webkit-user-select:none;user-select:none}
+.chip,.item,.year,.grp-h,.btn,.sync{transition:transform .1s,background .15s}
+.chip:active,.year:active,.btn:active,.sync:active{transform:scale(.96)}
+.item:active,.grp-h:active{background:var(--bg)}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"Zen Maru Gothic","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;font-size:15px}
-body{min-height:100vh;padding-bottom:calc(88px + env(safe-area-inset-bottom))}
+body{min-height:100vh;padding-bottom:calc(96px + env(safe-area-inset-bottom))}
 button,input,select,textarea{font:inherit;color:inherit}
 .wrap{max-width:480px;margin:0 auto;padding:0 16px}
 main svg:not(.peek),.sheet svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
@@ -46,10 +51,10 @@ header{position:sticky;top:0;z-index:20;background:linear-gradient(var(--bg) 80%
 .row{display:flex;gap:8px;align-items:center}
 .chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 0}
 .chips::-webkit-scrollbar{display:none}
-.chip{flex:none;border:1.5px solid var(--line);background:var(--paper);border-radius:99px;padding:6px 13px;font-size:13px;cursor:pointer;white-space:nowrap}
+.chip{flex:none;border:1.5px solid var(--line);background:var(--paper);border-radius:99px;padding:8px 14px;min-height:36px;font-size:13px;cursor:pointer;white-space:nowrap}
 .chip.on{background:var(--tan);border-color:var(--tan);color:#fff}
 .seg{display:flex;background:var(--milk);border-radius:99px;padding:3px}
-.seg button{flex:1;border:0;background:transparent;border-radius:99px;padding:7px 0;font-size:13px;cursor:pointer;color:var(--ink-soft)}
+.seg button{flex:1;border:0;background:transparent;border-radius:99px;padding:9px 0;min-height:38px;touch-action:manipulation;font-size:13px;cursor:pointer;color:var(--ink-soft)}
 .seg button.on{background:var(--paper);color:var(--ink);box-shadow:0 1px 0 var(--line)}
 select.pill,input.pill{appearance:none;-webkit-appearance:none;border:1.5px solid var(--line);background:var(--paper);border-radius:99px;padding:7px 28px 7px 13px;font-size:13px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23A08C76' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center}
 input.pill{background-image:none;padding-right:13px}
@@ -129,7 +134,7 @@ section{display:none} section.on{display:block;animation:fade .25s}
 /* prefs */
 .tagbox{display:flex;flex-wrap:wrap;gap:6px}
 .tag{display:flex;align-items:center;gap:4px;background:var(--bg);border:1.5px solid var(--line);border-radius:99px;padding:5px 6px 5px 12px;font-size:13px}
-.tag button{border:0;background:var(--milk);width:20px;height:20px;border-radius:50%;cursor:pointer;color:var(--ink-soft);line-height:1;padding:0}
+.tag button{border:0;background:var(--milk);width:26px;height:26px;border-radius:50%;cursor:pointer;color:var(--ink-soft);line-height:1;padding:0}
 .addtag{display:flex;gap:6px;margin-top:9px}
 .addtag input{flex:1;border:1.5px dashed var(--tan-soft);background:var(--paper);border-radius:99px;padding:7px 13px;font-size:13px;outline:none;min-width:0}
 .field{margin:12px 0}
@@ -140,12 +145,17 @@ section{display:none} section.on{display:block;animation:fade .25s}
 .grid2 .field{margin:6px 0}
 
 /* nav */
-nav{position:fixed;left:0;right:0;bottom:0;z-index:30;padding-bottom:env(safe-area-inset-bottom);background:var(--paper);border-top:1.5px solid var(--line)}
-nav .wrap{display:flex;align-items:center;height:66px}
-nav a{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:var(--ink-faint);text-decoration:none;cursor:pointer}
-nav a.on{color:var(--ink)} nav a.on svg{color:var(--tan)}
-nav .plus{flex:none;width:58px;height:58px;border-radius:50%;background:var(--tan);color:#fff;display:grid;place-items:center;margin:-26px 6px 0;border:4px solid var(--bg);box-shadow:0 3px 0 #C9AA80;cursor:pointer}
-nav .plus svg{width:28px;height:28px;stroke-width:2}
+nav{position:fixed;left:0;right:0;bottom:0;z-index:30;padding-bottom:max(env(safe-area-inset-bottom),6px);background:var(--paper);border-top:1.5px solid var(--line)}
+nav .wrap{display:flex;align-items:stretch;height:64px;padding:0 6px}
+/* 整個格子都是觸控範圍（不是只有圖示和字） */
+nav .tab{flex:1;min-width:0;height:100%;border:0;background:transparent;margin:0;padding:6px 0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;color:var(--ink-faint);cursor:pointer;border-radius:16px;transition:background .15s,color .15s}
+nav .tab:active{background:var(--milk)}
+nav .tab.on{color:var(--ink)} nav .tab.on svg{color:var(--tan)}
+nav .tab svg,nav .tab span{pointer-events:none}
+nav .plus-slot{flex:none;width:76px;display:flex;justify-content:center;position:relative}
+nav .plus{position:absolute;top:-24px;width:62px;height:62px;border-radius:50%;background:var(--tan);color:#fff;display:grid;place-items:center;border:4px solid var(--bg);box-shadow:0 3px 0 #C9AA80;cursor:pointer;padding:0;transition:transform .12s}
+nav .plus:active{transform:scale(.93)}
+nav .plus svg{width:28px;height:28px;stroke-width:2;pointer-events:none}
 
 /* sheet */
 .mask{position:fixed;inset:0;background:rgba(110,90,71,.22);z-index:50;display:none}
@@ -236,7 +246,7 @@ nav .plus svg{width:28px;height:28px;stroke-width:2}
   <section id="receivable">
     <div class="card" style="margin-top:6px">
       <div class="kpi hero" style="padding:4px 2px;background:transparent">
-        <div><div class="l">尚未收回</div><div class="v" id="arTotal">0</div><div class="tiny muted" id="arCount"></div></div>
+        <div><div class="l">尚未收回</div><div class="v" id="arTotal">0</div><div class="tiny muted" id="arCount"></div><div class="tiny muted" id="arNet" style="margin-top:6px;line-height:1.6"></div></div>
         <svg><use href="#sleep"/></svg>
       </div>
     </div>
@@ -259,11 +269,11 @@ nav .plus svg{width:28px;height:28px;stroke-width:2}
 </main>
 
 <nav><div class="wrap">
-  <a data-go="overview"><svg class="i"><use href="#i-home"/></svg>總覽</a>
-  <a data-go="records"><svg class="i"><use href="#i-list"/></svg>明細</a>
-  <div class="plus" id="addBtn"><svg class="i"><use href="#i-plus"/></svg></div>
-  <a data-go="receivable"><svg class="i"><use href="#i-coin"/></svg>應收</a>
-  <a data-go="prefs"><svg class="i"><use href="#i-gear"/></svg>設定</a>
+  <button type="button" class="tab" data-go="overview"><svg class="i"><use href="#i-home"/></svg><span>總覽</span></button>
+  <button type="button" class="tab" data-go="records"><svg class="i"><use href="#i-list"/></svg><span>明細</span></button>
+  <div class="plus-slot"><button type="button" class="plus" id="addBtn" aria-label="記一筆"><svg class="i"><use href="#i-plus"/></svg></button></div>
+  <button type="button" class="tab" data-go="receivable"><svg class="i"><use href="#i-coin"/></svg><span>應收</span></button>
+  <button type="button" class="tab" data-go="prefs"><svg class="i"><use href="#i-gear"/></svg><span>設定</span></button>
 </div></nav>
 
 <div class="mask" id="mask"></div>
@@ -302,11 +312,12 @@ const today = () => { const d = new Date(); return d.getFullYear()+'-'+String(d.
 const bookName = k => (BOOKS.find(b => b.k === k) || {n:k}).n;
 
 function kindOf(r){
-  const t = r.type, sub = r.sub;
+  const t = r.type, sub = r.sub, amt = Number(r.amount) || 0;
   if (t === '收入') return 'income';
-  if (t === '代付') return 'advance';
-  if (t === '收款' || t === '收回') return 'collect';
-  if (t === '應收款項') return (sub === '收回' || sub === '收款' || r.amount > 0) ? 'collect' : 'advance';
+  if (t === '支出') return 'expense';
+  if (t === '收款' || t === '收回' || sub === '收款' || sub === '收回') return 'collect';
+  // 「代付／應收款項」：金額為負是代付出去，金額為正是收回來的錢
+  if (t === '代付' || t === '應收款項') return amt > 0 ? 'collect' : 'advance';
   return 'expense';
 }
 
@@ -342,15 +353,21 @@ async function initCloud(){
 }
 
 function listen(){
-  FB.unsub.forEach(f => f()); FB.unsub = [];
+  FB.unsub.forEach(f => f()); FB.unsub = []; FB.sig = null; FB.setSig = null;
   if (!FB.user) { S.rows = []; S.settings = {}; return; }
   const { collection, doc, onSnapshot } = FB.fs;
   const base = `users/${FB.user.uid}`;
   FB.rowsCol = collection(FB.db, base + '/rows');
   FB.settingsDoc = doc(FB.db, base + '/meta/settings');
   FB.unsub.push(onSnapshot(FB.rowsCol, { includeMetadataChanges: true }, snap => {
-    S.rows = snap.docs.map(d => d.data()).filter(r => !r.deleted && r.date); invalidateAR();
+    const rows = snap.docs.map(d => d.data()).filter(r => !r.deleted && r.date);
+    const sig = rows.map(r => r.id + ':' + r.updatedAt).sort().join('|');
     UI.pending = snap.docs.filter(d => d.metadata.hasPendingWrites).length;
+    UI.fromCache = snap.metadata.fromCache; UI.err = '';
+    // 只是同步狀態改變（資料沒變）時，只更新右上角，不重畫畫面，避免點到一半按鈕被換掉
+    if (sig === FB.sig) { renderSync(); return; }
+    FB.sig = sig;
+    S.rows = rows; invalidateAR();
     UI.fromCache = snap.metadata.fromCache; UI.err = ''; S.demo = false;
     // 第一次載入時，總覽自動跳到最新一筆資料所在的月份
     if (UI.autoPeriod && S.rows.length) {
@@ -360,7 +377,10 @@ function listen(){
     renderLive();
   }, e => { UI.err = e.message; renderSync(); }));
   FB.unsub.push(onSnapshot(FB.settingsDoc, snap => {
-    if (snap.exists()) { S.settings = snap.data().lists || {}; renderLive(); }
+    if (!snap.exists()) return;
+    const sig = JSON.stringify(snap.data().lists || {});
+    if (sig === FB.setSig) return;
+    FB.setSig = sig; S.settings = snap.data().lists || {}; renderLive();
   }));
 }
 
@@ -409,7 +429,7 @@ async function login(){
 // 應收沖銷規則
 // 1) 有「關聯ID」的收款 → 直接沖該筆代付
 // 2) 沒有關聯的收款 → 同一對象（無對象則同帳本）先進先出沖最早的代付（含已標「已收」的，避免重複使用）
-// 3) 試算表的「狀態」欄優先：已收＝0；未收＝只扣有關聯的收款；部分收回／空白＝依沖銷結果
+// 3) 試算表的「狀態」欄優先：已收＝0；未收／部分收回＝只扣有關聯的收款；空白＝依沖銷結果
 let AR = null;
 const invalidateAR = () => { AR = null; };
 function arMap(){
@@ -437,14 +457,19 @@ function arMap(){
   adv.forEach(a => {
     const o = AR.get(a.id);
     if (a.status === '已收') o.paid = o.owe;
-    else if (a.status === '未收') o.paid = Math.min(o.owe, o.linked);
+    else if (a.status === '未收' || a.status === '部分收回') o.paid = Math.min(o.owe, o.linked);
     else o.paid = Math.min(o.owe, o.linked + o.fifo);
   });
   return AR;
 }
 function collectedFor(a){ const o = arMap().get(a.id); return o ? o.paid : 0; }
 function outstanding(a){ const o = arMap().get(a.id); return o ? Math.max(0, o.owe - o.paid) : Math.max(0, -a.amount); }
-function statusOf(a){ const o = outstanding(a); return o < 0.5 ? '已收' : o < -a.amount - 0.5 ? '部分收回' : '未收'; }
+function statusOf(a){
+  const o = outstanding(a);
+  if (o < 0.5) return '已收';
+  if (a.status === '部分收回' || o < -a.amount - 0.5) return '部分收回';
+  return '未收';
+}
 function refreshStatus(a){ const s = statusOf(a); if (a.status !== s) { a.status = s; upsert(a); } }
 
 /* ================= 篩選 ================= */
@@ -574,6 +599,9 @@ function renderAR(){
   const total = adv.reduce((s, r) => s + outstanding(r), 0);
   $('#arTotal').textContent = money(total);
   $('#arCount').textContent = `${adv.length} 筆代付未收回`;
+  // 收付淨額＝收款合計＋代付合計（與試算表 F1 Total 相同算法）
+  const net = b => S.rows.filter(r => r.book === b && ['advance','collect'].includes(kindOf(r))).reduce((s, r) => s + r.amount, 0);
+  $('#arNet').innerHTML = BOOKS.map(b => { const n = net(b.k); return `${b.n} 收付淨額 <b class="${n >= 0 ? 'pos' : ''}">${money(n, true)}</b>${n > 0 ? '（代收結餘）' : n < 0 ? '（淨墊付）' : ''}`; }).join('<br>');
   $$('#arBy button').forEach(b => b.classList.toggle('on', b.dataset.v === UI.arBy));
   const entries = Object.entries(g).sort((a, b) => b[1].reduce((s, r) => s + outstanding(r), 0) - a[1].reduce((s, r) => s + outstanding(r), 0));
   $('#arList').innerHTML = entries.length ? entries.map(([name, rs]) => {
@@ -741,7 +769,7 @@ function render(){
   $$('section').forEach(s => s.classList.toggle('on', gate ? s.id === 'login' : s.id === UI.tab));
   $('nav').style.display = gate ? 'none' : '';
   if (gate) return renderSync();
-  $$('nav a').forEach(a => a.classList.toggle('on', a.dataset.go === UI.tab));
+  $$('nav .tab').forEach(a => a.classList.toggle('on', a.dataset.go === UI.tab));
   if (UI.tab === 'overview') renderOverview();
   if (UI.tab === 'records') renderList();
   if (UI.tab === 'receivable') renderAR();
