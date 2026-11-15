@@ -349,6 +349,11 @@ function listen(){
     S.rows = snap.docs.map(d => d.data()).filter(r => !r.deleted && r.date);
     UI.pending = snap.docs.filter(d => d.metadata.hasPendingWrites).length;
     UI.fromCache = snap.metadata.fromCache; UI.err = ''; S.demo = false;
+    // 第一次載入時，總覽自動跳到最新一筆資料所在的月份
+    if (UI.autoPeriod && S.rows.length) {
+      const last = S.rows.reduce((m, r) => r.date > m ? r.date : m, '');
+      UI.year = +last.slice(0, 4); UI.month = +last.slice(5, 7); UI.autoPeriod = false;
+    }
     renderLive();
   }, e => { UI.err = e.message; renderSync(); }));
   FB.unsub.push(onSnapshot(FB.settingsDoc, snap => {
@@ -773,7 +778,7 @@ function loadDemo(){
 
 /* ================= 啟動 ================= */
 if (!cloudOn()) { load(); if (!S.rows.length) loadDemo(); }
-else { UI.year = null; UI.month = new Date().getMonth() + 1; }
+else { UI.autoPeriod = true; }
 const h = location.hash.slice(1);
 if (['overview','records','receivable','prefs'].includes(h)) UI.tab = h;
 if (S.demo && !UI.year) { UI.year = 2026; UI.month = 3; }

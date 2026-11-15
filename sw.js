@@ -1,6 +1,6 @@
 // 喵喵代付帳 service worker：讓 App 在完全離線時也能打開
 // 改了 index.html 之後，把版本號 +1，手機上的 App 就會更新
-const CACHE = 'meow-ledger-v1';
+const CACHE = 'meow-ledger-v2';
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-180.png'];
 const LIB_HOSTS = ['www.gstatic.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
