@@ -426,50 +426,40 @@ async function login(){
 }
 
 /* ================= 應收計算 ================= */
-// 應收沖銷規則
+// 應收沖銷規則（與試算表 Total 一致）
 // 1) 有「關聯ID」的收款 → 直接沖該筆代付
-// 2) 沒有關聯的收款 → 同一對象（無對象則同帳本）先進先出沖最早的代付（含已標「已收」的，避免重複使用）
-// 3) 試算表的「狀態」欄優先：已收＝0；未收／部分收回＝只扣有關聯的收款；空白＝依沖銷結果
+// 2) 其他收款 → 先進先出，沖最早的代付（收款有填對象就只沖同對象，否則沖同一帳本）
+// 所以「尚未收回」合計＝該帳本的 −(收款＋代付)，也就是試算表 F1 的 Total；狀態由此自動判斷
 let AR = null;
 const invalidateAR = () => { AR = null; };
 function arMap(){
   if (AR) return AR;
   AR = new Map();
-  const byDate = (a, b) => a.date.localeCompare(b.date);
+  const byDate = (a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id));
   const adv = S.rows.filter(r => kindOf(r) === 'advance').sort(byDate);
-  adv.forEach(a => AR.set(a.id, { owe: -a.amount, linked: 0, fifo: 0 }));
+  adv.forEach(a => AR.set(a.id, { owe: -a.amount, paid: 0 }));
   const loose = [];
   S.rows.filter(r => kindOf(r) === 'collect').sort(byDate).forEach(c => {
     const o = c.linkId && AR.get(c.linkId);
-    o ? o.linked += c.amount : loose.push(c);
+    if (!o) return loose.push(c);
+    const x = Math.min(c.amount, o.owe - o.paid); o.paid += x;
+    if (c.amount > x) loose.push({ ...c, amount: c.amount - x, linkId: '' });  // 多收的部分再往下沖
   });
-  const key = r => r.party ? 'p:' + r.party : 'b:' + r.book;
   loose.forEach(c => {
     let left = c.amount;
     for (const a of adv) {
       if (left <= 0) break;
-      if (key(a) !== key(c)) continue;
-      const o = AR.get(a.id), need = o.owe - o.linked - o.fifo;
+      if (c.party ? a.party !== c.party : a.book !== c.book) continue;
+      const o = AR.get(a.id), need = o.owe - o.paid;
       if (need <= 0) continue;
-      const x = Math.min(need, left); o.fifo += x; left -= x;
+      const x = Math.min(need, left); o.paid += x; left -= x;
     }
-  });
-  adv.forEach(a => {
-    const o = AR.get(a.id);
-    if (a.status === '已收') o.paid = o.owe;
-    else if (a.status === '未收' || a.status === '部分收回') o.paid = Math.min(o.owe, o.linked);
-    else o.paid = Math.min(o.owe, o.linked + o.fifo);
   });
   return AR;
 }
 function collectedFor(a){ const o = arMap().get(a.id); return o ? o.paid : 0; }
 function outstanding(a){ const o = arMap().get(a.id); return o ? Math.max(0, o.owe - o.paid) : Math.max(0, -a.amount); }
-function statusOf(a){
-  const o = outstanding(a);
-  if (o < 0.5) return '已收';
-  if (a.status === '部分收回' || o < -a.amount - 0.5) return '部分收回';
-  return '未收';
-}
+function statusOf(a){ const o = outstanding(a); return o < 0.5 ? '已收' : o < -a.amount - 0.5 ? '部分收回' : '未收'; }
 function refreshStatus(a){ const s = statusOf(a); if (a.status !== s) { a.status = s; upsert(a); } }
 
 /* ================= 篩選 ================= */
@@ -503,7 +493,8 @@ function renderOverview(){
   const t = sumBy(period);
   const pnl = t.income + t.expense;
   const end = m ? `${y}-${m}-31` : `${y}-12-31`;
-  const arBal = scoped.filter(r => r.date <= end && kindOf(r) === 'advance').reduce((s, r) => s + outstanding(r), 0);
+  // 截至期末的應收＝各帳本 −(收款＋代付) 的合計（帳本多收的不抵其他帳本）
+  const arBal = BOOKS.reduce((t, b) => t + Math.max(0, -scoped.filter(r => r.book === b.k && r.date <= end && ['advance','collect'].includes(kindOf(r))).reduce((s, r) => s + r.amount, 0)), 0);
   const label = m ? `${y} 年 ${+m} 月` : `${y} 年`;
   $('#kpis').innerHTML = `
     <div class="kpi hero"><div><div class="l">${label}・損益</div><div class="v ${pnl >= 0 ? 'pos' : 'neg'}">${money(pnl, true)}</div><div class="tiny muted">收入 ${money(t.income)} − 支出 ${money(t.expense)}</div></div><svg><use href="#cat"/></svg></div>
