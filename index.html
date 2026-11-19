@@ -171,6 +171,28 @@ nav .plus svg{width:28px;height:28px;stroke-width:2;pointer-events:none}
 .amount-in input{border:0;outline:none;background:transparent;font-size:32px;font-weight:700;width:100%;font-variant-numeric:tabular-nums}
 .toast{position:fixed;left:50%;bottom:calc(100px + env(safe-area-inset-bottom));transform:translate(-50%,20px);background:var(--ink);color:var(--paper);padding:9px 16px;border-radius:99px;font-size:13px;opacity:0;transition:.25s;z-index:80;pointer-events:none;white-space:nowrap}
 .toast.on{opacity:.92;transform:translate(-50%,0)}
+.pick{width:100%;display:flex;align-items:center;gap:8px;border:1.5px solid var(--line);background:var(--paper);border-radius:14px;padding:10px 12px;font-size:15px;min-height:48px;text-align:left;cursor:pointer;color:var(--ink)}
+.pick span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pick .ph{color:var(--ink-faint)} .pick .chev{margin-left:auto;color:var(--ink-faint);width:18px;height:18px}
+.pick:active{background:var(--bg)}
+.chipset{display:flex;flex-wrap:wrap;gap:8px}
+.opt{position:relative;border:1.5px solid var(--line);background:var(--paper);color:var(--ink);border-radius:14px;padding:10px 15px;min-height:44px;font-size:14px;cursor:pointer;touch-action:manipulation;-webkit-user-select:none;user-select:none;transition:transform .1s}
+.opt:active{transform:scale(.95)}
+.opt.on{background:var(--tan);border-color:var(--tan);color:#fff}
+.opt.add{border-style:dashed;color:var(--ink-soft);background:transparent}
+.opt.wide{width:100%;margin-top:12px;text-align:left}
+.opt .x{position:absolute;top:-8px;right:-8px;width:24px;height:24px;border-radius:50%;background:var(--rose-ink);color:#fff;font-size:15px;line-height:24px;text-align:center}
+.pk-h{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.pk-h h2{margin:0;font-size:17px;flex:1}
+.pk-sec{font-size:12px;color:var(--ink-soft);margin:16px 0 8px}
+.lrow{display:flex !important;align-items:center}
+.qd{margin-left:auto;display:flex;gap:6px}
+.mini{border:1.5px solid var(--line);background:var(--paper);border-radius:99px;padding:3px 10px;font-size:12px;color:var(--ink-soft);cursor:pointer;min-height:28px}
+.mini:active{background:var(--milk)}
+.cm-row{border:1.5px solid var(--line);border-radius:16px;margin:8px 0;background:var(--paper)}
+.cm-h{display:flex;align-items:center;gap:8px;padding:12px 14px;cursor:pointer;min-height:48px}
+.cm-h b{font-weight:500} .cm-h .c{margin-left:auto;font-size:12px;color:var(--ink-soft)}
+.cm-b{display:none;padding:0 14px 14px} .cm-row.open .cm-b{display:block}
 .note{background:var(--beige);border-radius:14px;padding:10px 12px;font-size:12.5px;line-height:1.6;color:var(--ink)}
 </style>
 </head>
@@ -278,6 +300,8 @@ nav .plus svg{width:28px;height:28px;stroke-width:2;pointer-events:none}
 
 <div class="mask" id="mask"></div>
 <div class="sheet" id="sheet"><div class="wrap" id="sheetBody"></div></div>
+<div class="mask" id="mask2" style="z-index:65"></div>
+<div class="sheet" id="picker" style="z-index:70"><div class="wrap" id="pickerBody" style="max-height:82vh"></div></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -300,7 +324,7 @@ const KIND = {
   expense:{n:'支出',type:'支出',sign:-1,g:'支'},
   income:{n:'收入',type:'收入',sign:1,g:'入'}
 };
-const SET_KEYS = ['帳戶','專案','對象','支出類別','收入類別','幣種'];
+const SET_KEYS = ['帳戶','專案','對象','幣種'];   // 類別與子類別另有專屬管理畫面
 const LS = 'meow-ledger-v1';
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -642,56 +666,212 @@ function renderPrefs(){
       </div>
       <p class="tiny muted" style="margin:8px 0 0">試算表剛改完想馬上看到？先在試算表選單「🐱 喵喵同步 → 立即同步」，再按「重新載入資料」。</p>` : '';
   $('#demoCard').style.display = cloudOn() ? 'none' : '';
-  $('#setLists').innerHTML = SET_KEYS.map(k => `<div class="card"><h3>${k}<span class="sub">${(S.settings[k] || []).length} 項</span></h3>
+  const ck = UI.cmKind === 'income' ? '收入類別' : '支出類別';
+  UI.cmOpen = UI.cmOpen || new Set();
+  const mains = S.settings[ck] || [];
+  $('#setLists').innerHTML = `<div class="card"><h3>類別與子類別<span class="sub">點主類別展開子類別</span></h3>
+    <div class="seg" id="cmKind" style="margin-bottom:6px"><button type="button" data-cm="expense" class="${ck === '支出類別' ? 'on' : ''}">支出／代付類別</button><button type="button" data-cm="income" class="${ck === '收入類別' ? 'on' : ''}">收入類別</button></div>
+    ${mains.map(m => { const subs = subsOf(m); return `<div class="cm-row ${UI.cmOpen.has(m) ? 'open' : ''}">
+      <div class="cm-h" data-cmtoggle="${esc(m)}"><svg class="i" style="width:18px;height:18px;color:var(--tan)"><use href="#paw"/></svg><b>${esc(m)}</b><span class="c">${subs.length} 個子類別 ›</span></div>
+      <div class="cm-b">
+        <div class="tagbox">${subs.map(v => `<span class="tag">${esc(v)}<button data-cmdelsub="${esc(m)}/${esc(v)}" aria-label="刪除">×</button></span>`).join('') || '<span class="tiny muted">還沒有子類別</span>'}</div>
+        <form class="addtag" data-cmaddsub="${esc(m)}"><input placeholder="新增「${esc(m)}」的子類別"><button class="btn sm">新增</button></form>
+        <button type="button" class="btn sm danger" style="margin-top:10px" data-cmdelmain="${esc(m)}">刪除主類別「${esc(m)}」</button>
+      </div></div>`; }).join('') || '<p class="tiny muted">還沒有類別</p>'}
+    <form class="addtag" data-cmaddmain="1"><input placeholder="新增主類別，例如：醫療"><button class="btn sm">新增</button></form>
+    <button type="button" class="btn sm ghost" id="seedBtn" style="margin-top:12px">從現有帳目帶入帳戶、對象、專案與類別</button>
+  </div>` + SET_KEYS.map(k => `<div class="card"><h3>${k}<span class="sub">${(S.settings[k] || []).length} 項</span></h3>
     <div class="tagbox">${(S.settings[k] || []).map((v, i) => `<span class="tag">${esc(v)}<button data-del="${k}" data-i="${i}" aria-label="刪除">×</button></span>`).join('')}</div>
     <form class="addtag" data-add="${k}"><input placeholder="新增${k}…"><button class="btn sm">新增</button></form></div>`).join('');
+  $('#setLists').onclick = e => {
+    const t = e.target.closest('[data-cm],[data-cmtoggle],[data-cmdelsub],[data-cmdelmain],#seedBtn'); if (!t) return;
+    if (t.id === 'seedBtn') return seedFromData();
+    if (t.dataset.cm) { UI.cmKind = t.dataset.cm; return renderPrefs(); }
+    if (t.dataset.cmtoggle) { const m = t.dataset.cmtoggle; UI.cmOpen.has(m) ? UI.cmOpen.delete(m) : UI.cmOpen.add(m); return t.parentElement.classList.toggle('open'); }
+    if (t.dataset.cmdelsub) { delSetting('子類別', t.dataset.cmdelsub); return renderPrefs(); }
+    if (t.dataset.cmdelmain) { const m = t.dataset.cmdelmain; return confirmBox(`刪除主類別「${m}」和它的子類別？已記的帳不會被改動。`, () => { closeSheet(); delSetting(ck, m); renderPrefs(); }); }
+  };
+  $('#setLists').onsubmit = e => {
+    const f = e.target;
+    if (!f.dataset.cmaddsub && !f.dataset.cmaddmain) return;
+    e.preventDefault(); e.stopPropagation();
+    const v = f.querySelector('input').value.trim(); if (!v) return;
+    if (f.dataset.cmaddmain) { addSetting(ck, v); UI.cmOpen.add(v); }
+    else addSetting('子類別', f.dataset.cmaddsub + '/' + v);
+    renderPrefs();
+  };
+}
+
+/* ================= 手機友善選單（從下方滑出的選擇面板） ================= */
+const NOUN = { '帳戶':'帳戶', '對象':'對象', '專案':'專案', '幣種':'幣種' };
+const listOf = key => (S.settings[key] || []).slice();
+const catKey = k => k === 'income' ? '收入類別' : '支出類別';
+const subsOf = main => (S.settings['子類別'] || []).filter(s => s.startsWith(main + '/')).map(s => s.slice(main.length + 1));
+function recentOf(field, allowed){
+  const out = [];
+  for (const r of [...S.rows].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0) || b.date.localeCompare(a.date))) {
+    const v = r[field];
+    if (v && !out.includes(v) && (!allowed || allowed.includes(v))) out.push(v);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+function addSetting(key, v){
+  v = String(v || '').trim(); if (!v) return;
+  S.settings[key] = S.settings[key] || [];
+  if (!S.settings[key].includes(v)) { S.settings[key].push(v); saveSettings(); }
+}
+function delSetting(key, v){
+  S.settings[key] = (S.settings[key] || []).filter(x => x !== v);
+  if (key === '支出類別' || key === '收入類別') S.settings['子類別'] = (S.settings['子類別'] || []).filter(s => !s.startsWith(v + '/'));
+  saveSettings();
+}
+const pickBtn = (id, val, ph) => `<button type="button" class="pick" id="${id}">${val ? `<span>${esc(val)}</span>` : `<span class="ph">${esc(ph)}</span>`}<svg class="i chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>`;
+const optBtn = (v, on, manage, delAttr) => `<button type="button" class="opt ${on ? 'on' : ''}" data-pv="${esc(v)}">${esc(v)}${manage ? `<span class="x" ${delAttr}="${esc(v)}">×</span>` : ''}</button>`;
+
+function openLayer(html){ $('#pickerBody').innerHTML = '<div class="grab"></div>' + html; $('#mask2').classList.add('on'); $('#picker').classList.add('on'); }
+function closeLayer(){ $('#mask2').classList.remove('on'); $('#picker').classList.remove('on'); }
+
+/** 單層選單：帳戶、對象、專案、幣種 */
+function openPicker(o){
+  let manage = false;
+  openLayer(`<div class="pk-h"><h2>${esc(o.title)}</h2><button type="button" class="btn sm ghost" id="pkManage">編輯</button><button type="button" class="btn sm" id="pkClose">完成</button></div>
+    <div class="search"><svg class="i"><use href="#i-search"/></svg><input id="pkQ" placeholder="搜尋，或輸入新的${esc(o.key)}" enterkeyhint="done" autocomplete="off"></div>
+    <div id="pkList"></div>`);
+  const draw = () => {
+    const q = $('#pkQ').value.trim(), ql = q.toLowerCase();
+    const all = listOf(o.key), shown = all.filter(v => !ql || v.toLowerCase().includes(ql));
+    const rec = ql || manage ? [] : (o.recent || []).filter(v => all.includes(v)).slice(0, 6);
+    $('#pkList').innerHTML =
+      (q && !all.includes(q) ? `<button type="button" class="opt add wide" data-pnew>＋ 新增「${esc(q)}」</button>` : '') +
+      (rec.length ? `<div class="pk-sec">最近使用</div><div class="chipset">${rec.map(v => optBtn(v, v === o.value)).join('')}</div>` : '') +
+      `<div class="pk-sec">${ql ? '搜尋結果' : manage ? '點 × 刪除選項（不影響已記的帳）' : '全部'}（${shown.length}）</div>
+       <div class="chipset">${shown.map(v => optBtn(v, v === o.value, manage, 'data-pdel')).join('') || '<span class="tiny muted">還沒有選項，在上方輸入名稱就能新增</span>'}</div>` +
+      (o.value && !manage && o.clearable !== false ? `<button type="button" class="btn sm ghost block" data-pclear style="margin-top:18px">清除，不填</button>` : '');
+  };
+  const pick = v => { closeLayer(); o.onPick(v); };
+  $('#pkQ').oninput = draw;
+  $('#pkQ').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); const q = e.target.value.trim(); if (q) { addSetting(o.key, q); pick(q); } } };
+  $('#pkClose').onclick = closeLayer;
+  $('#pkManage').onclick = () => { manage = !manage; $('#pkManage').textContent = manage ? '完成編輯' : '編輯'; draw(); };
+  $('#pkList').onclick = e => {
+    const d = e.target.closest('[data-pdel]');
+    if (d) { delSetting(o.key, d.dataset.pdel); return draw(); }
+    if (e.target.closest('[data-pnew]')) { const q = $('#pkQ').value.trim(); addSetting(o.key, q); return pick(q); }
+    if (e.target.closest('[data-pclear]')) return pick('');
+    const b = e.target.closest('[data-pv]');
+    if (b && !manage) pick(b.dataset.pv);
+  };
+  draw();
+}
+
+/** 兩層類別選單：先選主類別，再選子類別 */
+function openCatPicker(o){
+  const key = catKey(o.kind);
+  let main = o.main && o.main !== '應收款項' ? o.main : '', sub = main ? (o.sub || '') : '', manage = false;
+  openLayer(`<div class="pk-h"><h2>選擇類別</h2><button type="button" class="btn sm ghost" id="pkManage">編輯</button><button type="button" class="btn sm" id="pkDone">完成</button></div>
+    <div id="pkList"></div>`);
+  const draw = () => {
+    const mains = listOf(key), subs = main ? subsOf(main) : [];
+    $('#pkList').innerHTML = `
+      <div class="pk-sec">主類別</div>
+      <div class="chipset">${mains.map(v => `<button type="button" class="opt ${v === main ? 'on' : ''}" data-main="${esc(v)}">${esc(v)}${manage ? `<span class="x" data-delmain="${esc(v)}">×</span>` : ''}</button>`).join('')}</div>
+      <form class="addtag" id="addMain"><input placeholder="新增主類別，例如：醫療" enterkeyhint="done"><button class="btn sm">新增</button></form>
+      ${main ? `
+      <div class="pk-sec">「${esc(main)}」的子類別</div>
+      <div class="chipset">
+        <button type="button" class="opt ${!sub ? 'on' : ''}" data-sub="">不分子類別</button>
+        ${subs.map(v => `<button type="button" class="opt ${v === sub ? 'on' : ''}" data-sub="${esc(v)}">${esc(v)}${manage ? `<span class="x" data-delsub="${esc(v)}">×</span>` : ''}</button>`).join('')}
+      </div>
+      <form class="addtag" id="addSub"><input placeholder="新增「${esc(main)}」的子類別" enterkeyhint="done"><button class="btn sm">新增</button></form>` : `<p class="tiny muted" style="margin-top:14px">先點一個主類別，就會出現它的子類別。</p>`}
+      ${o.main ? `<button type="button" class="btn sm ghost block" data-pclear style="margin-top:18px">清除類別</button>` : ''}`;
+    $('#addMain').onsubmit = e => { e.preventDefault(); const v = e.target.querySelector('input').value.trim(); if (!v) return; addSetting(key, v); main = v; sub = ''; draw(); };
+    if ($('#addSub')) $('#addSub').onsubmit = e => { e.preventDefault(); const v = e.target.querySelector('input').value.trim(); if (!v) return; addSetting('子類別', main + '/' + v); sub = v; draw(); };
+  };
+  $('#pkManage').onclick = () => { manage = !manage; $('#pkManage').textContent = manage ? '完成編輯' : '編輯'; draw(); };
+  $('#pkDone').onclick = () => { closeLayer(); o.onPick(main, sub); };
+  $('#pkList').onclick = e => {
+    const dm = e.target.closest('[data-delmain]'); if (dm) { delSetting(key, dm.dataset.delmain); if (main === dm.dataset.delmain) { main = ''; sub = ''; } return draw(); }
+    const ds = e.target.closest('[data-delsub]'); if (ds) { delSetting('子類別', main + '/' + ds.dataset.delsub); if (sub === ds.dataset.delsub) sub = ''; return draw(); }
+    if (e.target.closest('[data-pclear]')) { closeLayer(); return o.onPick('', ''); }
+    const m = e.target.closest('[data-main]'); if (m && !manage) { if (main !== m.dataset.main) { main = m.dataset.main; sub = ''; } return draw(); }
+    const s = e.target.closest('[data-sub]'); if (s && !manage) { sub = s.dataset.sub; closeLayer(); return o.onPick(main, sub); }
+  };
+  draw();
+}
+
+function seedFromData(){
+  const before = JSON.stringify(S.settings);
+  const add = (key, v) => { v = String(v || '').trim(); if (!v) return; S.settings[key] = S.settings[key] || []; if (!S.settings[key].includes(v)) S.settings[key].push(v); };
+  S.rows.forEach(r => {
+    add('帳戶', r.account); add('對象', r.party); add('專案', r.project);
+    if (r.currency) add('幣種', String(r.currency).toUpperCase());
+    if (r.main && r.main !== '應收款項') {
+      add(kindOf(r) === 'income' ? '收入類別' : '支出類別', r.main);
+      if (r.sub && !['代付','收款','收回'].includes(r.sub)) add('子類別', r.main + '/' + r.sub);
+    }
+  });
+  if (JSON.stringify(S.settings) === before) return toast('選項都已經是最新的');
+  saveSettings(); renderPrefs(); toast('已從帳目帶入選項');
 }
 
 /* ================= 新增 / 編輯 ================= */
 function openSheet(html){ $('#sheetBody').innerHTML = '<div class="grab"></div>' + html; $('#mask').classList.add('on'); $('#sheet').classList.add('on'); }
-function closeSheet(){ $('#mask').classList.remove('on'); $('#sheet').classList.remove('on'); }
+function closeSheet(){ closeLayer(); $('#mask').classList.remove('on'); $('#sheet').classList.remove('on'); }
 
-function datalist(id, list){ return `<datalist id="${id}">${(list || []).map(v => `<option value="${esc(v)}">`).join('')}</datalist>`; }
+const dayOffset = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 
 function openEditor(row){
   const isNew = !row;
-  const r = row ? { ...row } : { id: uid(), book: UI.book !== 'all' ? UI.book : BOOKS[0].k, type:'代付', main:'', sub:'', amount:0, date: today(), currency:'TWD', account:(S.settings['帳戶'] || [])[0] || '', project: UI.project !== 'all' && UI.project !== '未指定' ? UI.project : '', party:'', desc:'' };
+  const lastAcc = recentOf('account')[0] || (S.settings['帳戶'] || [])[0] || '';
+  const r = row ? { ...row } : { id: uid(), book: UI.book !== 'all' ? UI.book : BOOKS[0].k, type:'代付', main:'', sub:'', amount:0, date: today(), currency:'TWD', account: lastAcc, project: UI.project !== 'all' && UI.project !== '未指定' ? UI.project : '', party:'', desc:'' };
   let k = kindOf(r);
-  const st = S.settings;
   const draw = () => {
-    const cats = (k === 'income' ? st['收入類別'] : st['支出類別']) || [];
+    const keepScroll = $('#sheet .wrap') ? $('#sheet .wrap').scrollTop : 0;
     const rate = r.orig && r.amount ? Math.abs(r.amount / r.orig) : 0;
+    const curs = [...new Set(['TWD', ...(S.settings['幣種'] || []), r.currency || 'TWD'])];
+    const catLabel = r.main && r.main !== '應收款項' ? r.main + (r.sub && !['代付','收款','收回'].includes(r.sub) ? ' › ' + r.sub : '') : '';
     openSheet(`
       <h2><svg class="i"><use href="#cat"/></svg>${isNew ? '記一筆' : '編輯紀錄'}</h2>
       <div class="seg" id="eKind">${Object.entries(KIND).map(([kk, v]) => `<button type="button" data-k="${kk}" class="${k === kk ? 'on' : ''}">${v.n}</button>`).join('')}</div>
       <form id="eForm">
         <div class="amount-in"><span>NT$</span><input id="eAmt" inputmode="decimal" placeholder="0" value="${r.amount ? Math.abs(r.amount) : ''}" required></div>
-        <div class="grid2">
-          <div class="field"><label>日期</label><input type="date" id="eDate" value="${r.date}" required></div>
-          <div class="field"><label>帳本</label><select id="eBook">${opts(BOOKS.map(b => ({v:b.k, n:b.n})), r.book)}</select></div>
-          <div class="field"><label>帳戶</label><input id="eAcc" list="dlAcc" value="${esc(r.account)}"></div>
-          <div class="field"><label>幣種</label><select id="eCur">${opts([...new Set(['TWD', ...(st['幣種'] || []), r.currency || 'TWD'])], r.currency || 'TWD')}</select></div>
-        </div>
+        <div class="field"><label class="lrow">日期<span class="qd"><button type="button" class="mini" data-d="0">今天</button><button type="button" class="mini" data-d="-1">昨天</button></span></label><input type="date" id="eDate" value="${r.date}" required></div>
+        <div class="field"><label>帳本</label><div class="chipset" id="eBook">${BOOKS.map(b => `<button type="button" class="opt ${r.book === b.k ? 'on' : ''}" data-v="${b.k}">${b.n}</button>`).join('')}</div></div>
+        <div class="field"><label>帳戶</label>${pickBtn('pAcc', r.account, '選擇帳戶')}</div>
+        <div class="field"><label>幣種</label><div class="chipset" id="eCur">${curs.map(c => `<button type="button" class="opt ${c === (r.currency || 'TWD') ? 'on' : ''}" data-v="${esc(c)}">${esc(c)}</button>`).join('')}<button type="button" class="opt add" id="curMore">＋</button></div></div>
         <div class="field" id="origWrap" style="display:${r.currency && r.currency !== 'TWD' ? '' : 'none'}"><label>原幣金額（<span id="curLbl">${esc(r.currency)}</span>）</label><input id="eOrig" inputmode="decimal" value="${r.orig != null && r.orig !== '' ? Math.abs(r.orig) : ''}" placeholder="例如 7260"><div class="tiny muted" id="rateHint" style="margin-top:4px">${rate ? '匯率約 ' + rate.toFixed(4) : '填入後自動計算匯率'}</div></div>
-        <div class="grid2"><div class="field"><label>主類別</label><input id="eMain" list="dlCat" value="${esc(r.main)}" placeholder="例：醫療"></div><div class="field"><label>子類別</label><input id="eSub" value="${esc(r.sub)}" placeholder="例：藥品"></div></div>${datalist('dlCat', cats)}
+        <div class="field"><label>類別</label>${pickBtn('pCat', catLabel, '選擇主類別 › 子類別')}</div>
         <div class="grid2">
-          <div class="field"><label>對象</label><input id="eParty" list="dlParty" value="${esc(r.party)}" placeholder="幫誰付／誰付的"></div>
-          <div class="field"><label>專案</label><input id="eProj" list="dlProj" value="${esc(r.project)}"></div>
+          <div class="field"><label>對象</label>${pickBtn('pParty', r.party, '幫誰付／誰付的')}</div>
+          <div class="field"><label>專案</label>${pickBtn('pProj', r.project, '選擇專案')}</div>
         </div>
-        <div class="field"><label>描述</label><input id="eDesc" value="${esc(r.desc)}" placeholder="例如：代匯運費"></div>
-        <details class="field" ${r.merchant || r.name || r.fee || r.discount ? 'open' : ''}><summary class="tiny muted" style="cursor:pointer">更多欄位（商家、名稱、手續費、折扣）</summary>
+        <div class="field"><label>描述</label><input id="eDesc" value="${esc(r.desc)}" placeholder="例如：代匯運費" enterkeyhint="done"></div>
+        <details class="field" ${r.merchant || r.name || r.fee || r.discount ? 'open' : ''}><summary class="tiny muted" style="cursor:pointer;padding:6px 0">更多欄位（商家、名稱、手續費、折扣）</summary>
           <div class="grid2" style="margin-top:6px">
             <div class="field"><label>商家</label><input id="eMerchant" value="${esc(r.merchant)}"></div>
             <div class="field"><label>名稱</label><input id="eName" value="${esc(r.name)}"></div>
             <div class="field"><label>手續費</label><input id="eFee" inputmode="decimal" value="${r.fee ?? ''}"></div>
             <div class="field"><label>折扣</label><input id="eDisc" inputmode="decimal" value="${r.discount ?? ''}"></div>
           </div></details>
-        ${datalist('dlAcc', st['帳戶'])}${datalist('dlParty', st['對象'])}${datalist('dlProj', st['專案'])}
         <button class="btn block" style="margin-top:6px">儲存</button>
         ${isNew ? '' : `<div class="row" style="margin-top:10px">${k === 'advance' && outstanding(r) > 0 ? `<button type="button" class="btn ghost" style="flex:1" id="eCollect">登記收回</button>` : ''}<button type="button" class="btn danger" style="flex:1" id="eDel">刪除</button></div>`}
       </form>`);
+    if (keepScroll) $('#sheet .wrap').scrollTop = keepScroll;
+    const redraw = () => { capture(); draw(); };
     $$('#eKind button').forEach(b => b.onclick = () => { capture(); k = b.dataset.k; draw(); });
-    $('#eCur').onchange = e => { $('#origWrap').style.display = e.target.value !== 'TWD' ? '' : 'none'; $('#curLbl').textContent = e.target.value; };
+    $$('[data-d]').forEach(b => b.onclick = () => { $('#eDate').value = dayOffset(+b.dataset.d); });
+    $('#eBook').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; r.book = b.dataset.v; $$('#eBook .opt').forEach(x => x.classList.toggle('on', x === b)); };
+    $('#eCur').onclick = e => {
+      const b = e.target.closest('[data-v]'); if (!b) return;
+      r.currency = b.dataset.v; $$('#eCur .opt[data-v]').forEach(x => x.classList.toggle('on', x === b));
+      $('#origWrap').style.display = r.currency !== 'TWD' ? '' : 'none'; $('#curLbl').textContent = r.currency;
+    };
+    $('#curMore').onclick = () => { capture(); openPicker({ title:'幣種', key:'幣種', value:r.currency, clearable:false, onPick: v => { if (v) r.currency = v.toUpperCase(); draw(); } }); };
+    $('#pAcc').onclick = () => { capture(); openPicker({ title:'帳戶', key:'帳戶', value:r.account, recent:recentOf('account'), onPick: v => { r.account = v; draw(); } }); };
+    $('#pParty').onclick = () => { capture(); openPicker({ title:'對象', key:'對象', value:r.party, recent:recentOf('party'), onPick: v => { r.party = v; draw(); } }); };
+    $('#pProj').onclick = () => { capture(); openPicker({ title:'專案', key:'專案', value:r.project, recent:recentOf('project'), onPick: v => { r.project = v; draw(); } }); };
+    $('#pCat').onclick = () => { capture(); openCatPicker({ kind:k, main:r.main, sub:r.sub, onPick: (m, s) => { r.main = m; r.sub = s; draw(); } }); };
     const hint = () => { const a = parseFloat($('#eAmt').value), o = parseFloat($('#eOrig').value); $('#rateHint').textContent = a && o ? '匯率約 ' + (a / o).toFixed(4) : '填入後自動計算匯率'; };
     $('#eAmt').oninput = hint; $('#eOrig').oninput = hint;
     $('#eForm').onsubmit = e => { e.preventDefault(); commit(); };
@@ -700,15 +880,14 @@ function openEditor(row){
       remove(r.id); closeSheet(); render(); toast('已刪除');
     });
     if ($('#eCollect')) $('#eCollect').onclick = () => openCollect([row]);
-    if (isNew) setTimeout(() => $('#eAmt').focus(), 300);
+    if (isNew && !keepScroll && !r.amount) setTimeout(() => $('#eAmt') && $('#eAmt').focus(), 300);
   };
   const capture = () => {
     const v = id => $(id) ? $(id).value.trim() : null;
-    r.amount = Math.abs(parseFloat(v('#eAmt')) || 0) * KIND[k].sign; r.date = v('#eDate'); r.book = v('#eBook'); r.account = v('#eAcc');
-    r.currency = v('#eCur'); r.party = v('#eParty'); r.project = v('#eProj'); r.desc = v('#eDesc');
+    if (!$('#eForm')) return;
+    r.amount = Math.abs(parseFloat(v('#eAmt')) || 0) * KIND[k].sign; r.date = v('#eDate') || r.date; r.desc = v('#eDesc');
     const n = x => { const t = v(x); return t === '' || t === null ? null : parseFloat(t); };
     const o = n('#eOrig'); r.orig = o === null || isNaN(o) ? null : Math.abs(o) * KIND[k].sign;
-    r.main = v('#eMain'); r.sub = v('#eSub');
     r.merchant = v('#eMerchant'); r.name = v('#eName'); r.fee = n('#eFee'); r.discount = n('#eDisc');
   };
   const commit = () => {
@@ -720,12 +899,16 @@ function openEditor(row){
     if (r.currency === 'TWD') r.orig = null;
     if (k === 'advance') r.status = statusOf(r); else r.status = '';
     upsert(r);
-    // 新出現的帳戶／對象／專案自動加入設定
-    let changed = false;
-    [['帳戶', r.account], ['對象', r.party], ['專案', r.project], [k === 'income' ? '收入類別' : '支出類別', r.main !== '應收款項' ? r.main : '']].forEach(([key, val]) => {
-      if (val && !(S.settings[key] || []).includes(val)) { (S.settings[key] = S.settings[key] || []).push(val); changed = true; }
+    // 新出現的帳戶／對象／專案／類別自動加入選項
+    const before = JSON.stringify(S.settings);
+    [['帳戶', r.account], ['對象', r.party], ['專案', r.project], [catKey(k), r.main !== '應收款項' ? r.main : '']].forEach(([key, val]) => {
+      if (val && !(S.settings[key] || []).includes(val)) (S.settings[key] = S.settings[key] || []).push(val);
     });
-    if (changed) saveSettings();
+    if (r.main && r.sub && r.main !== '應收款項' && !['代付','收款','收回'].includes(r.sub)) {
+      const pair = r.main + '/' + r.sub;
+      if (!(S.settings['子類別'] || []).includes(pair)) (S.settings['子類別'] = S.settings['子類別'] || []).push(pair);
+    }
+    if (JSON.stringify(S.settings) !== before) saveSettings();
     if (r.linkId) { const a = S.rows.find(x => x.id === r.linkId); if (a) refreshStatus(a); }
     closeSheet(); render(); toast(isNew ? '記好了 ฅ^•ﻌ•^ฅ' : '已更新');
   };
@@ -735,18 +918,21 @@ function openEditor(row){
 function openCollect(advs){
   const sum = advs.reduce((s, r) => s + outstanding(r), 0);
   const single = advs.length === 1;
+  let acc = advs[0].account || '';
   openSheet(`<h2><svg class="i"><use href="#cat"/></svg>登記收回</h2>
     <p class="tiny muted" style="margin:0 0 6px">${single ? esc(advs[0].desc || '代付') + '・' + esc(advs[0].party || '未指定對象') : `${advs.length} 筆代付一次收回`}</p>
     <form id="cForm">
       <div class="amount-in"><span>NT$</span><input id="cAmt" inputmode="decimal" value="${Math.round(sum)}" ${single ? '' : 'readonly'}></div>
-      <div class="grid2"><div class="field"><label>收款日期</label><input type="date" id="cDate" value="${today()}"></div>
-      <div class="field"><label>收進哪個帳戶</label><input id="cAcc" list="dlAcc2" value="${esc(advs[0].account || '')}"></div></div>
-      ${datalist('dlAcc2', S.settings['帳戶'])}
+      <div class="field"><label class="lrow">收款日期<span class="qd"><button type="button" class="mini" data-d="0">今天</button><button type="button" class="mini" data-d="-1">昨天</button></span></label><input type="date" id="cDate" value="${today()}"></div>
+      <div class="field"><label>收進哪個帳戶</label><div id="cAccWrap">${pickBtn('cAcc', acc, '選擇帳戶')}</div></div>
       ${single ? '<p class="tiny muted">金額小於應收時會記為「部分收回」。</p>' : ''}
       <button class="btn block">確認收回</button></form>`);
+  $$('[data-d]').forEach(b => b.onclick = () => { $('#cDate').value = dayOffset(+b.dataset.d); });
+  const bindAcc = () => $('#cAcc').onclick = () => openPicker({ title:'收進哪個帳戶', key:'帳戶', value:acc, recent:recentOf('account'), onPick: v => { acc = v; $('#cAccWrap').innerHTML = pickBtn('cAcc', acc, '選擇帳戶'); bindAcc(); } });
+  bindAcc();
   $('#cForm').onsubmit = e => {
     e.preventDefault();
-    const date = $('#cDate').value || today(), acc = $('#cAcc').value.trim();
+    const date = $('#cDate').value || today();
     advs.forEach(a => {
       const amt = single ? Math.min(parseFloat($('#cAmt').value) || 0, outstanding(a)) : outstanding(a);
       if (amt <= 0) return;
@@ -813,7 +999,7 @@ document.addEventListener('click', e => {
   if (t.dataset.del) { S.settings[t.dataset.del].splice(+t.dataset.i, 1); saveSettings(); return render(); }
 });
 document.addEventListener('submit', e => {
-  const f = e.target.closest('[data-add]'); if (!f) return;
+  const f = e.target.closest('[data-add]'); if (!f || !f.dataset.add) return;
   e.preventDefault(); const v = f.querySelector('input').value.trim(); if (!v) return;
   const k = f.dataset.add; S.settings[k] = S.settings[k] || [];
   if (!S.settings[k].includes(v)) S.settings[k].push(v);
@@ -825,6 +1011,7 @@ $('#fProject').onchange = e => { UI.project = e.target.value; render(); };
 $('#q').oninput = e => { UI.q = e.target.value; renderList(); };
 $('#addBtn').onclick = () => openEditor(null);
 $('#mask').onclick = closeSheet;
+$('#mask2').onclick = closeLayer;
 $('#syncBtn').onclick = () => { if (UI.err) toast(UI.err); else if (FB && FB.user) reloadData(); else go('prefs'); };
 $('#loginBtn').onclick = () => FB && login();
 $('#loadDemo').onclick = () => { loadDemo(); render(); toast('已載入示範資料'); };
